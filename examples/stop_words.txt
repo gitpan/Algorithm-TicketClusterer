@@ -1,0 +1,43 @@
+#  This is the list of stop words --- these are words that
+#  will be deleted from the tickets clustering data before
+#  the addition of synonyms for the words.
+
+#  Do not include the words 'no' and 'not' in this list
+#  as these are needed for the detection of words whose
+#  antonyms are required.
+
+#  After the above preprocessing step, we want to eliminate
+#  words like 'no' and 'not' because their synonym set
+#  includes words such as the "atomic number" that have
+#  nothing do with the sort of tickets we are talking about.
+
+
+am
+also
+but
+could
+does
+for
+from
+have
+here
+hi
+in
+only
+since
+that
+the
+their
+then
+there
+these
+they
+this
+those
+to
+were
+when
+which
+while
+will
+with
