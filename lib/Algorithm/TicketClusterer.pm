@@ -1,7 +1,7 @@
 package Algorithm::TicketClusterer;
 
 #---------------------------------------------------------------------------
-# Copyright (c) 2012 Avinash Kak. All rights reserved.  This program is
+# Copyright (c) 2014 Avinash Kak. All rights reserved.  This program is
 # free software.  You may modify and/or distribute it under the same terms
 # as Perl itself.  This copyright notice must remain attached to the file.
 #
@@ -20,10 +20,11 @@ use Storable;
 use Spreadsheet::ParseExcel;
 use Spreadsheet::XLSX;
 use WordNet::QueryData;
+use Text::Iconv;
 use SDBM_File;
 use Fcntl;
 
-our $VERSION = '1.0';
+our $VERSION = '1.01';
 
 ############################### The Constructor #############################
 
@@ -77,7 +78,7 @@ sub new {
         _inverted_index         =>   {},
         _debug1                 =>   $args{debug1} || 0, # for processing Excel
         _debug2                 =>   $args{debug2} || 0, # for modeling tickets
-        _debug3                 =>   $args{debug3} || 0, # for similarity retrieval
+        _debug3                 =>   $args{debug3} || 0, # for retrieving similar tickets
         _wn                     =>   WordNet::QueryData->new( verbose => 0, 
                                                               noload => 1 ),
     }, $class;
@@ -96,18 +97,18 @@ sub get_tickets_from_excel {
     unlink $self->{_tkt_doc_vecs_normed_db} if -s $self->{_tkt_doc_vecs_normed_db};   
     unlink glob "$self->{_tickets_vocab_db}.*";   
     unlink glob "$self->{_idf_db}.*";
-    my $filename = $self->{_excel_filename} || croak("Excel file required"),
+    my $filename = $self->{_excel_filename} || die("Excel file required"),
     my $clustering_fieldname = $self->{_clustering_fieldname} 
-      || croak("\nYou forgot to specify a value for the constructor parameter clustering_fieldname that points to the data to be clustered in your Excel sheet -- ");
+      || die("\nYou forgot to specify a value for the constructor parameter clustering_fieldname that points to the data to be clustered in your Excel sheet -- ");
     my $unique_id_fieldname = $self->{_unique_id_fieldname} 
-      || croak("\nYou forgot to specify a value for the constructor parameter unique_id_fieldname that is a unique integer identifer for the rows of your Excel sheet -- ");
+      || die("\nYou forgot to specify a value for the constructor parameter unique_id_fieldname that is a unique integer identifier for the rows of your Excel sheet -- ");
     my $workbook;
     if ($filename =~ /\.xls$/) {
         my $parser = Spreadsheet::ParseExcel->new();
         $workbook = $parser->parse($filename);
         die $parser->error() unless defined $workbook;
     } elsif ($filename =~ /\.xlsx$/) {
-        use Text::Iconv;
+#        use Text::Iconv;
         my $converter = Text::Iconv->new("utf-8", "windows-1251");
         $workbook = Spreadsheet::XLSX->new($filename, $converter);
     } else {
@@ -115,7 +116,7 @@ sub get_tickets_from_excel {
     }
     my @worksheets = $workbook->worksheets();
     my $which_worksheet = $self->{_which_worksheet} || 
-        croak "\nYou have not specified which Excel worksheet contains the tickets\n";
+        die "\nYou have not specified which Excel worksheet contains the tickets\n";
     my ( $row_min, $row_max ) = $worksheets[$which_worksheet-1]->row_range();
     my ( $col_min, $col_max ) = $worksheets[$which_worksheet-1]->col_range();
     my @good_columns;
@@ -204,7 +205,7 @@ sub _test_excel_for_tickets {
     my $self = shift;
     use Text::Iconv;
     my $converter = Text::Iconv->new("utf-8", "windows-1251");
-    my $filename = $self->{_excel_filename} || croak("Excel sheed need for testing is missing");
+    my $filename = $self->{_excel_filename} || die("Excel sheet needed for testing is missing");
     my $workbook = Spreadsheet::XLSX->new( $filename, $converter );
     my @worksheets = $workbook->worksheets();
     my ( $row_min, $row_max ) = $worksheets[0]->row_range();
@@ -322,9 +323,9 @@ sub store_raw_tickets_on_disk {
 sub restore_raw_tickets_from_disk {
     my $self = shift;
     my $clustering_fieldname = $self->{_clustering_fieldname} 
-      || croak("\nYou forgot to specify a value for the constructor parameter clustering_fieldname that points to the data to be clustered in your Excel sheet -- ");
+      || die("\nYou forgot to specify a value for the constructor parameter clustering_fieldname that points to the data to be clustered in your Excel sheet -- ");
     my $unique_id_fieldname = $self->{_unique_id_fieldname} 
-      || croak("\nYou forgot to specify a value for the constructor parameter unique_id_fieldname that is a unique integer identifer for the rows of your Excel sheet -- ");
+      || die("\nYou forgot to specify a value for the constructor parameter unique_id_fieldname that is a unique integer identifier for the rows of your Excel sheet -- ");
     eval {                    
         $self->{_all_tickets} = retrieve( $self->{_raw_tickets_db} );
     };
@@ -363,10 +364,10 @@ sub _delete_markup_from_one_ticket {
 sub apply_filter_to_all_tickets {
     my $self = shift;
     my $stop_words_file = $self->{_stop_words_file} 
-        || croak("\nYou forgot to supply the name of the stop words file in your constructor call\n");
+        || die("\nYou forgot to supply the name of the stop words file in your constructor call\n");
     my @stop_words = @{_fetch_words_from_file($stop_words_file)};
     my $misspelled_words_file = $self->{_misspelled_words_file} 
-        || croak("\nYou forgot to supply the name of the misspelled words file in your constructor call\n");
+        || die("\nYou forgot to supply the name of the misspelled words file in your constructor call\n");
     foreach my $word (@stop_words) {
         $self->{_stop_words}->{$word} = 1;
     }
@@ -829,7 +830,7 @@ sub display_tickets_vocab {
     my $self = shift;
     die "tickets vocabulary not yet constructed"
         unless keys %{$self->{_vocab_hist}};
-    print "\n\nDisplaying tickets vocabulary (the number shown agaist each word is the number of times each word appears in ALL the tickets):\n\n";
+    print "\n\nDisplaying tickets vocabulary (the number shown against each word is the number of times each word appears in ALL the tickets):\n\n";
     foreach (sort keys %{$self->{_vocab_hist}}){
         my $outstring = sprintf("%30s     %d", $_,$self->{_vocab_hist}->{$_});
         print "$outstring\n";
@@ -1085,14 +1086,14 @@ sub display_inverted_index_for_given_query {
 sub retrieve_similar_tickets_with_vsm {
     my $self = shift;
     $self->{_query_ticket_id} = shift;
-    die "\nFirst generate normalized doc vectors for ticketsbefore you can call retrieve with vsm function()\n"
+    die "\nFirst generate normalized doc vectors for tickets before you can call retrieve with vsm function()\n"
         unless scalar(keys %{$self->{_vocab_hist}}) 
                   && scalar(keys %{$self->{_tkt_doc_vecs_normed}});
     print "\nCalculating the similarity set for query ticket $self->{_query_ticket_id}\n\n";
     my $query_record = $self->{_stemmed_tkts_by_ids}->{$self->{_query_ticket_id}};
     my @query_words = grep $_, split /\s+/, $query_record;
     my %relevant_tickets_set;
-    croak "\n\nYou did not set a value for the constructor parameter min_idf_threshold -- "
+    die "\n\nYou did not set a value for the constructor parameter min_idf_threshold -- "
         unless $self->{_min_idf_threshold};
     foreach my $qword (@query_words) {
         map {$relevant_tickets_set{$_} = 1} @{$self->{_inverted_index}->{$qword}}
@@ -1165,7 +1166,7 @@ sub _similarity_to_query_ticket {
 }
 
 
-########################  Utility Subroutimes  ##########################
+########################  Utility Subroutines  ##########################
 
 sub _simple_stemmer {
     my $word = shift;
@@ -1209,10 +1210,10 @@ sub _fetch_words_from_file {
     open( IN, "$file" ) or die "unable to open the file $file: $!";
     while (<IN>) {
         next if /^#/;
-        next if /^[ ]*$/;
-        chomp;
+        next if /^[ ]*\r?\n?$/;
+        $_ =~ s/\r?\n?$//;
         my @how_many_in_line = grep $_, split /\s+/, $_;
-        croak "File $file: Only one word allowed in each line  -- " 
+        die "File $file: Exactly one word allowed in each line  -- " 
                     unless @how_many_in_line == 1;
         push @words, $_;
     }
@@ -1229,7 +1230,7 @@ sub _fetch_word_pairs_from_file {
         next if /^[ ]*$/;
         chomp;
         my @how_many_in_line = grep $_, split /\s+/, $_;
-        croak "File: $file --- Exactly two words must be in each non-comment or not-empty line -- " 
+        die "File: $file --- Exactly two words must be in each non-comment or not-empty line -- " 
                     unless @how_many_in_line == 2;
         push @word_pairs, $_;
     }
@@ -1318,7 +1319,7 @@ sub _fisher_yates_shuffle {
 sub _vec_scalar_product {
     my $vec1 = shift;
     my $vec2 = shift;
-    croak "Something is wrong --- the two vectors are of unequal length"
+    die "Something is wrong --- the two vectors are of unequal length"
         unless @$vec1 == @$vec2;
     my $product;
     for my $i (0..@$vec1-1) {
@@ -1450,6 +1451,11 @@ requests for service, product complaints, user feedback, and so on.
     #  rest of this documentation.
 
 
+=head1 CHANGES
+
+Version 1.01 of the module removes the platform dependency of the functions used for
+reading the text files for stop words, misspelled words, etc.
+
 
 =head1 DESCRIPTION
 
@@ -1551,10 +1557,10 @@ module even further.
 
 The textual content of the tickets, as produced by the preprocessing steps,
 is used for document modeling and the doc model thus created used
-subsequently for similarity-based ticket retrieval.  The doc modeling is
-carried out using the Vector Space Model (VSM) in which each ticket is
-represented by a vector whose size equals the size of the vocabulary used
-in all the tickets and whose elements represent the word frequencies in the
+subsequently for retrieving similar tickets.  The doc modeling is carried
+out using the Vector Space Model (VSM) in which each ticket is represented
+by a vector whose size equals the size of the vocabulary used in all the
+tickets and whose elements represent the word frequencies in the
 ticket. After such a model is constructed, a query ticket is compared with
 the other tickets on the basis of the cosine similarity distance between
 the corresponding vectors.
@@ -1644,8 +1650,8 @@ the order of decreasing similarity.
 
 =head1 METHODS
 
-The module provides the following methods for ticket preprocessing and for
-the retrieval of tickets most similar to a given ticket:
+The module provides the following methods for ticket preprocessing and for the
+retrieval of tickets most similar to a given ticket:
 
 =over
 
@@ -1680,229 +1686,215 @@ class:
                      how_many_retrievals       => 5,
                      debug1                    => 1,  # for processing, filtering Excel
                      debug2                    => 1,  # for doc modeling
-                     debug3                    => 1,  # for similarity retrieval
+                     debug3                    => 1,  # for retrieving similar tickets
 
                    );
 
-Obviously, before you can invoke the constructor, you must provide values
-for the variables shown to the right of the big arrows.  As to what these
-values should be is made clear by the following alphabetized list that
-describes each of the constructor parameters shown above:
+Obviously, before you can invoke the constructor, you must provide values for the
+variables shown to the right of the big arrows.  As to what these values should be is
+made clear by the following alphabetized list that describes each of the constructor
+parameters shown above:
 
 =over 24
 
 =item I<add_synsets_to_tickets:>
 
-You can turn off the addition of synonyms to the tickets by setting this
-boolean parameter to 0.
+You can turn off the addition of synonyms to the tickets by setting this boolean
+parameter to 0.
 
 =item I<clustering_fieldname:>
 
-This is for supplying to the constructor the heading of the column in your
-Excel spreadsheet that contains the textual data for the tickets.  For
-example, if the column heading for the textual content of the tickets is
-`Description', you must supply this string as the value for the parameter
-C<clustering_fieldname>.
+This is for supplying to the constructor the heading of the column in your Excel
+spreadsheet that contains the textual data for the tickets.  For example, if the
+column heading for the textual content of the tickets is `Description', you must
+supply this string as the value for the parameter C<clustering_fieldname>.
 
 =item I<debug1:>
 
-When this parameter is set, the module prints out information regarding
-what columns of the spreadsheet it is extracting information from, the
-headers for those columns, the index of the column that contains the
-textual content of the tickets, and of the column that contains the unique
-integer identifier for each ticket.  If you are dealing with spreadsheets
-with a large number of tickets, it is best to pipe the output of the module
-into a file to see the debugging information.
+When this parameter is set, the module prints out information regarding what columns
+of the spreadsheet it is extracting information from, the headers for those columns,
+the index of the column that contains the textual content of the tickets, and of the
+column that contains the unique integer identifier for each ticket.  If you are
+dealing with spreadsheets with a large number of tickets, it is best to pipe the
+output of the module into a file to see the debugging information.
 
 =item I<debug2:>
 
-When this parameter is set, you will see how WordNet is being utilized to
-generate word synonyms. This debugging output is also useful to see the
-extent of misspellings in the tickets.  If WordNet is unable to find the
-synonyms for a word, chances are that the word is not spelled correctly (or
-that it is a jargon word or a jargon acronym).
+When this parameter is set, you will see how WordNet is being utilized to generate
+word synonyms. This debugging output is also useful to see the extent of misspellings
+in the tickets.  If WordNet is unable to find the synonyms for a word, chances are
+that the word is not spelled correctly (or that it is a jargon word or a jargon
+acronym).
 
 =item I<debug3:>
 
-This debug flag applies to the calculations carried out during the
-retrieval of similar tickets.  When this flag is set, the module will
-display the candidate set of tickets to be considered for matching with the
-query ticket.  This candidate set is chosen by using the inverted index to
-collect all the tickets that share words with the query word provided the
-IDF value for each such word exceeds the threshold set by the constructor
-parameter C<min_idf_threshold>.
+This debug flag applies to the calculations carried out during the retrieval of
+similar tickets.  When this flag is set, the module will display the candidate set of
+tickets to be considered for matching with the query ticket.  This candidate set is
+chosen by using the inverted index to collect all the tickets that share words with
+the query word provided the IDF value for each such word exceeds the threshold set by
+the constructor parameter C<min_idf_threshold>.
 
 =item I<excel_filename:>
 
-This is obviously the name of the Excel file that contains the tickets you
-want to process.
+This is obviously the name of the Excel file that contains the tickets you want to
+process.
 
 =item I<how_many_retrievals:>
 
-The integer value supplied for this parameter determines how many tickets
-that are most similar to a query ticket will be returned.
+The integer value supplied for this parameter determines how many tickets that are
+most similar to a query ticket will be returned.
 
 =item I<idf_db:>
 
-You store the inverse document frequencies for the vocabulary words in a
-database file whose name is supplied through this constructor parameter.
-As mentioned earlier, the IDF for a word is, in principle, the logarithm of
-the ratio of the total number of tickets to the DF (Document Frequenty) for
-the word.  The DF of a word is the number of tickets in which the word
-appears.
+You store the inverse document frequencies for the vocabulary words in a database
+file whose name is supplied through this constructor parameter.  As mentioned
+earlier, the IDF for a word is, in principle, the logarithm of the ratio of the total
+number of tickets to the DF (Document Frequency) for the word.  The DF of a word is
+the number of tickets in which the word appears.
 
 =item I<inverted_index_db:>
 
-If you plan to create separate scripts for the three stages of processing
-described earlier, you must store the inverted index in a database file so
-that it can be used by the script whose job is to carry out similarity
-based ticket retrieval. The inverted index is stored in a database file
-whose name is supplied through this constructor parameter.
+If you plan to create separate scripts for the three stages of processing described
+earlier, you must store the inverted index in a database file so that it can be used
+by the script whose job is to carry out similarity based ticket retrieval. The
+inverted index is stored in a database file whose name is supplied through this
+constructor parameter.
 
 =item I<max_num_syn_words:>
 
-As mentioned in B<DESCRIPTION>, some words can have a very large number of
-synonyms --- much larger than the number of words that may exist in a
-typical ticket.  If you were to add all such synonyms to a ticket, you run
-the danger of altering the sense of the ticket, besides unnecessarily
-increasing the size of the vocabulary. This parameter limits the number of
-synonyms chosen to the value used for the parameter.  When the number of
-synonyms returned by WordNet is greater than the value set for this
-parameter, the synonyms retained are chosen randomly from the list returned
-by WordNet.
+As mentioned in B<DESCRIPTION>, some words can have a very large number of synonyms
+--- much larger than the number of words that may exist in a typical ticket.  If you
+were to add all such synonyms to a ticket, you run the danger of altering the sense
+of the ticket, besides unnecessarily increasing the size of the vocabulary. This
+parameter limits the number of synonyms chosen to the value used for the parameter.
+When the number of synonyms returned by WordNet is greater than the value set for
+this parameter, the synonyms retained are chosen randomly from the list returned by
+WordNet.
 
 =item I<min_idf_threshold:>
 
-First recall that IDF stands for Inverse Document Frequency.  It is
-calculated during the second of the three-stage processing of the tickets
-as described in the section B<THE THREE STAGES OF PROCESSING TICKETS>.  The
-IDF value of a word gives us a measure of the discriminatory power of the
-word.  Let's say you have a word that occurs in only one out of 1000
-tickets.  Such a word is obviously highly discriminatory and its IDF would
-be the logarithm (to base 10) of the ratio of 1000 to 1, which is 3.  On
-the other hand, for a word that occurs in every one of 1000 tickets, its
-IDF value would be the logarithm of the ratio of 1000 to 1000, which is 0.
-So, for the case when you have 1000 tickets, the upper bound on IDF is 3
-and the lower bound 0. This constructor parameter controls which of the
-query words you will use for constructing the initial pool of tickets that
-will be used for matching.  The larger the value of this threshold, the
-smaller the pool obviously.
+First recall that IDF stands for Inverse Document Frequency.  It is calculated during
+the second of the three-stage processing of the tickets as described in the section
+B<THE THREE STAGES OF PROCESSING TICKETS>.  The IDF value of a word gives us a
+measure of the discriminatory power of the word.  Let's say you have a word that
+occurs in only one out of 1000 tickets.  Such a word is obviously highly
+discriminatory and its IDF would be the logarithm (to base 10) of the ratio of 1000
+to 1, which is 3.  On the other hand, for a word that occurs in every one of 1000
+tickets, its IDF value would be the logarithm of the ratio of 1000 to 1000, which is
+0.  So, for the case when you have 1000 tickets, the upper bound on IDF is 3 and the
+lower bound 0. This constructor parameter controls which of the query words you will
+use for constructing the initial pool of tickets that will be used for matching.  The
+larger the value of this threshold, the smaller the pool obviously.
 
 =item I<min_word_length:> 
 
-This parameter sets the minimum number of characters in a word in order for
-it to be included for ticket processing.
+This parameter sets the minimum number of characters in a word in order for it to be
+included for ticket processing.
 
 =item I<misspelled_words_file:>
 
-As to what extent you can improve ticket retrieval precision with the
-addition of synonyms depends on the degree to which you can make
-corrections on the fly for the spelling errors that occur frequently in
-tickets.  That fact makes the file you supply through this constructor
-parameter very important.  For the current version of the module, this file
-must contain exactly two columns, with the first entry in each row the
-misspelled word and the second entry the correctly spelled word.  See this
+As to what extent you can improve ticket retrieval precision with the addition of
+synonyms depends on the degree to which you can make corrections on the fly for the
+spelling errors that occur frequently in tickets.  That fact makes the file you
+supply through this constructor parameter very important.  For the current version of
+the module, this file must contain exactly two columns, with the first entry in each
+row the misspelled word and the second entry the correctly spelled word.  See this
 file in the C<examples> directory for how to format it.
 
 =item I<processed_tickets_db:>
 
-As mentioned earlier in B<DESCRIPTION>, the tickets must be subject to
-various preprocessing steps before they can be used for document modeling
-for the purpose of retrieval. Preprocessing consists of stop words removal,
-spelling corrections, antonym detection, synonym addition, etc.  The
-tickets resulting from preprocessing are stored in a database file whose
-name you supply through this constructor parameter.
+As mentioned earlier in B<DESCRIPTION>, the tickets must be subject to various
+preprocessing steps before they can be used for document modeling for the purpose of
+retrieval. Preprocessing consists of stop words removal, spelling corrections,
+antonym detection, synonym addition, etc.  The tickets resulting from preprocessing
+are stored in a database file whose name you supply through this constructor
+parameter.
 
 =item I<raw_tickets_db:>
 
-The raw tickets extracted from the Excel spreadsheet are stored in a
-database file whose name you supply through this constructor parameter.
-The idea here is that we do not want to process an Excel spreadsheet for
-each new attempt at matching a query ticket with the previously recorded
-tickets in the same spreadsheet.  It is much faster to load the database
-back into the runtime environment than to process a large spreadsheet.
+The raw tickets extracted from the Excel spreadsheet are stored in a database file
+whose name you supply through this constructor parameter.  The idea here is that we
+do not want to process an Excel spreadsheet for each new attempt at matching a query
+ticket with the previously recorded tickets in the same spreadsheet.  It is much
+faster to load the database back into the runtime environment than to process a large
+spreadsheet.
 
 =item I<stemmed_tickets_db:>
 
-As mentioned in the section B<THE THREE STAGES OF PROCESSING>, one of the
-first things you do in the second stage of processing is to stem the words
-in the tickets.  Stemming is important because it reduces the size of the
-vocabulary.  To illustrate, stemming would reduce both the words
-`programming' and `programmed' to the common root 'program'.  This module
-uses a very simple stemmer whose rules can be found in the utility
-subroutine C<_simple_stemmer()>.  It would be trivial to expand on these
-rules, or, for that matter, to use the Perl module C<Lingua::Stem::En> for
-a full application of the Porter Stemming Algorithm.  The stemmed tickets
-are saved in a database file whose name is supplied through this
-constructor parameter.
+As mentioned in the section B<THE THREE STAGES OF PROCESSING>, one of the first
+things you do in the second stage of processing is to stem the words in the tickets.
+Stemming is important because it reduces the size of the vocabulary.  To illustrate,
+stemming would reduce both the words `programming' and `programmed' to the common
+root 'program'.  This module uses a very simple stemmer whose rules can be found in
+the utility subroutine C<_simple_stemmer()>.  It would be trivial to expand on these
+rules, or, for that matter, to use the Perl module C<Lingua::Stem::En> for a full
+application of the Porter Stemming Algorithm.  The stemmed tickets are saved in a
+database file whose name is supplied through this constructor parameter.
 
 =item I<stop_words_file:>
 
-This constructor parameter is for naming the file that contains the stop
-words, these being words you do not wish to be included in the vocabulary.
-The format of this file must be as shown in the sample file
-C<stop_words.txt> in the C<examples> directory.
+This constructor parameter is for naming the file that contains the stop words, these
+being words you do not wish to be included in the vocabulary.  The format of this
+file must be as shown in the sample file C<stop_words.txt> in the C<examples>
+directory.
 
 =item I<synset_cache_db:>
 
-As mentioned in B<DESCRIPTION>, we expand each ticket with a certain number
-of synonyms for the words in the ticket for the purpose of grounding all
-the tickets in a common vocabulary.  This entails making calls to WordNet
-through its Perl interface C<WordNet::QueryData>.  Since these calls can be
-expensive, you can vastly improve the runtime performance of the module by
-caching the results returned by WordNet.  This constructor parameter is for
-naming a diskfile in which the cache will be stored.
+As mentioned in B<DESCRIPTION>, we expand each ticket with a certain number of
+synonyms for the words in the ticket for the purpose of grounding all the tickets in
+a common vocabulary.  This entails making calls to WordNet through its Perl interface
+C<WordNet::QueryData>.  Since these calls can be expensive, you can vastly improve
+the runtime performance of the module by caching the results returned by WordNet.
+This constructor parameter is for naming a diskfile in which the cache will be
+stored.
 
 =item I<tickets_vocab_db:>
 
-This parameter is for naming the DBM in which the ticket vocabulary is
-stored after it is subject to stemming.
+This parameter is for naming the DBM in which the ticket vocabulary is stored after
+it is subject to stemming.
 
 =item I<tkt_doc_vecs_db:>
 
-The database file named by this constructor parameter stores the document
-vector representations for the tickets.  Each document vector has the same
-size as the vocabulary for all the tickets; each element of such a vector
-is the number of occurrences of the corresponding word in the ticket.
+The database file named by this constructor parameter stores the document vector
+representations for the tickets.  Each document vector has the same size as the
+vocabulary for all the tickets; each element of such a vector is the number of
+occurrences of the corresponding word in the ticket.
 
 =item I<tkt_doc_vecs_normed_db:>
 
-The database file named by this parameter stores the normalized document
-vectors.  Normalization of a ticket vector consists of factoring out the
-size of the ticket by dividing the term frequency for each word in the
-ticket by the number of words in the ticket, and then multiplying the
-result by the IDF value for the word.
+The database file named by this parameter stores the normalized document vectors.
+Normalization of a ticket vector consists of factoring out the size of the ticket by
+dividing the term frequency for each word in the ticket by the number of words in the
+ticket, and then multiplying the result by the IDF value for the word.
 
 =item I<unique_id_fieldname:>
 
-One of the columns of your Excel spreadsheet must contain a unique integer
-identifier for each ticket-bearing row of the sheet.  The head of this
-column, a string obviously, is supplied as the value for this constructor
-parameter.
+One of the columns of your Excel spreadsheet must contain a unique integer identifier
+for each ticket-bearing row of the sheet.  The head of this column, a string
+obviously, is supplied as the value for this constructor parameter.
 
 =item I<want_stemming:>
 
-This boolean parameter determines whether or not the words extracted from
-the tickets would be subject to stemming.  As mentioned elsewhere, stemming
-means that related words like `programming' and `programs' would both be
-reduced to the root word `program'.  Stemming is important for limiting the
-size of the vocabulary.
+This boolean parameter determines whether or not the words extracted from the tickets
+would be subject to stemming.  As mentioned elsewhere, stemming means that related
+words like `programming' and `programs' would both be reduced to the root word
+`program'.  Stemming is important for limiting the size of the vocabulary.
 
 =item I<want_synset_caching:>
 
 Turning this boolean parameter on is a highly effective way to improve the
-computational speed of the module.  As mentioned earlier, it is important
-to ground the tickets in a common vocabulary and this module does that by
-adding to the tickets a designated number of the synonyms for the words in
-the tickets.  However, the calls to WordNet for the synonyms through the
-Perl interface C<WordNet::QueryData> can be expensive. Caching means that
-only one call would need to be made to WordNet for any given word
-regardless of how many times the word appears in all of the tickets.
+computational speed of the module.  As mentioned earlier, it is important to ground
+the tickets in a common vocabulary and this module does that by adding to the tickets
+a designated number of the synonyms for the words in the tickets.  However, the calls
+to WordNet for the synonyms through the Perl interface C<WordNet::QueryData> can be
+expensive. Caching means that only one call would need to be made to WordNet for any
+given word regardless of how many times the word appears in all of the tickets.
 
 =item I<which_worksheet:>
 
-This specifies the Excel worksheet that contains the tickets.  Its value
-should be 1 for the first sheet, 2 for the second, and so on.
+This specifies the Excel worksheet that contains the tickets.  Its value should be 1
+for the first sheet, 2 for the second, and so on.
 
 =back
 
@@ -1916,53 +1908,50 @@ should be 1 for the first sheet, 2 for the second, and so on.
 
     $clusterer->apply_filter_to_all_tickets()
 
-The filtering consists of dropping words from the tickets that are in your
-stop-list file, fixing spelling errors using the `bad-word good-word' pairs
-in your spelling errors file, and deleting short words.
+The filtering consists of dropping words from the tickets that are in your stop-list
+file, fixing spelling errors using the `bad-word good-word' pairs in your spelling
+errors file, and deleting short words.
 
 =item  B<construct_doc_vectors_for_all_tickets()>
 
     $clusterer->construct_doc_vectors_for_all_tickets()
 
-This method is used in the doc modeling stage of the computations.  As
-stated earlier, doc modeling of the tickets consists of representing each
-ticket by a vector whose size equals that of the vocabulary and whose
-elements represent the frequencies of the corresponding words in the
-ticket.  In addition to calculating the doc vectors, this method also
-constructs a normalized version of the doc vectors.  The normalization for
-a ticket consists of multiplying the word frequencies in the vectors by the
-IDF values associated with the words and dividing the result by the total
-number of words in the ticket.
+This method is used in the doc modeling stage of the computations.  As stated
+earlier, doc modeling of the tickets consists of representing each ticket by a vector
+whose size equals that of the vocabulary and whose elements represent the frequencies
+of the corresponding words in the ticket.  In addition to calculating the doc
+vectors, this method also constructs a normalized version of the doc vectors.  The
+normalization for a ticket consists of multiplying the word frequencies in the
+vectors by the IDF values associated with the words and dividing the result by the
+total number of words in the ticket.
 
 =item  B<delete_markup_from_all_tickets()>
 
     $clusterer->delete_markup_from_all_tickets()
 
-It is not uncommon for the textual content of a ticket to contain HTML
-markup. This method deletes such strings.  Note that this method is not
-capable of deleting complex markup that may include HTML comment blocks,
-may cross line boundaries, or when the textual content includes angle
-brackets that denote "less than" or "greater then".  If your tickets
-require more sophisticated processing for the removal of markup, you might
-consider using the C<HTML::Restrict> module.
+It is not uncommon for the textual content of a ticket to contain HTML markup. This
+method deletes such strings.  Note that this method is not capable of deleting
+complex markup that may include HTML comment blocks, may cross line boundaries, or
+when the textual content includes angle brackets that denote "less than" or "greater
+then".  If your tickets require more sophisticated processing for the removal of
+markup, you might consider using the C<HTML::Restrict> module.
 
 
 =item  B<display_all_doc_vectors()>
 
 =item  B<display_all_normalized_doc_vectors()>
 
-These two methods are useful for troubleshooting if things don't look 
-right with regard to retrieval.
+These two methods are useful for troubleshooting if things don't look right with
+regard to retrieval.
 
 =item  B<display_inverse_document_frequencies()>
 
     $clusterer->display_inverse_document_frequencies()
 
-As mentioned earlier, the document frequency (DF) of a word is the number
-of tickets in which the word appears.  The IDF of a word is the
-logarithm of the ratio of the total number of tickets to the DF of the
-word.  A call to this method displays the IDF values for the words in the
-vocabulary.
+As mentioned earlier, the document frequency (DF) of a word is the number of tickets
+in which the word appears.  The IDF of a word is the logarithm of the ratio of the
+total number of tickets to the DF of the word.  A call to this method displays the
+IDF values for the words in the vocabulary.
 
 =item  B<display_inverted_index()>
 
@@ -1970,65 +1959,64 @@ vocabulary.
 
 =item  B<display_inverted_index_for_given_query( $ticket_id )>
 
-The above three methods are useful for troubleshooting the issues that are
-related to the generation of the inverted index.  The first method shows
-the entire inverted index, the second the inverted index for a single
-specified word, and the third for all the words in a query ticket.
+The above three methods are useful for troubleshooting the issues that are related to
+the generation of the inverted index.  The first method shows the entire inverted
+index, the second the inverted index for a single specified word, and the third for
+all the words in a query ticket.
 
 =item  B<display_tickets_vocab()>
 
     $clusterer->display_tickets_vocab()
 
 This method displays the ticket vocabulary constructed by a call to
-C<get_ticket_vocabulary_and_construct_inverted_index()>.  The vocabulary
-display consists of an alphabetized list of the words in all the tickets
-along with the frequency of each word.
+C<get_ticket_vocabulary_and_construct_inverted_index()>.  The vocabulary display
+consists of an alphabetized list of the words in all the tickets along with the
+frequency of each word.
 
 =item  B<expand_all_tickets_with_synonyms()>
 
     $clusterer->expand_all_tickets_with_synonyms();
 
-This is the final step in the preprocessing of the tickets before they are
-ready for the doc modeling stage.  This method calls other functions internal to
-the module that ultimately make calls to WordNet through the Perl interface
-provided by the C<WordNet::QueryData> module.
+This is the final step in the preprocessing of the tickets before they are ready for
+the doc modeling stage.  This method calls other functions internal to the module
+that ultimately make calls to WordNet through the Perl interface provided by the
+C<WordNet::QueryData> module.
 
 =item B<get_tickets_from_excel():>
 
     $clusterer->get_tickets_from_excel()
 
-This method calls on the C<Spreadsheet::ParseExcel> module to extract the
-tickets from the old-style Excel spreadsheets and the C<Spreadsheet::XLSX>
-module for doing the same from the new-style Excel spreadsheets.
+This method calls on the C<Spreadsheet::ParseExcel> module to extract the tickets
+from the old-style Excel spreadsheets and the C<Spreadsheet::XLSX> module for doing
+the same from the new-style Excel spreadsheets.
 
 =item  B<get_ticket_vocabulary_and_construct_inverted_index()>
 
     $clusterer->get_ticket_vocabulary_and_construct_inverted_index()
 
-As mentioned in B<THE THREE STAGES OF PROCESSING>, the second stage of
-processing --- doc modeling of the tickets --- starts with the stemming of
-the words in the tickets, constructing a vocabulary of all the stemmed
-words in all the tickets, and constructing an inverted index for the
-vocabulary words.  All of these things are accomplished by this method.
+As mentioned in B<THE THREE STAGES OF PROCESSING>, the second stage of processing ---
+doc modeling of the tickets --- starts with the stemming of the words in the tickets,
+constructing a vocabulary of all the stemmed words in all the tickets, and
+constructing an inverted index for the vocabulary words.  All of these things are
+accomplished by this method.
 
 =item  B<restore_processed_tickets_from_disk()>
 
     $clusterer->restore_processed_tickets_from_disk()
 
-This loads into your script the output of the ticket preprocessing stage.
-This method is called internally by
-C<restore_ticket_vectors_and_inverted_index()>, which you would use in your
-ticket retrieval script, assuming it is separate from the ticket
-preprocessing script.
+This loads into your script the output of the ticket preprocessing stage.  This
+method is called internally by C<restore_ticket_vectors_and_inverted_index()>, which
+you would use in your ticket retrieval script, assuming it is separate from the
+ticket preprocessing script.
 
 =item B<restore_raw_tickets_from_disk()>
 
     $clusterer->restore_raw_tickets_from_disk()    
 
-With this method, you are spared the trouble of having to repeatedly parse
-the same Excel spreadsheet during the development phase as you are testing
-the module with different query tickets.  This method is called internally
-by C<restore_ticket_vectors_and_inverted_index()>.
+With this method, you are spared the trouble of having to repeatedly parse the same
+Excel spreadsheet during the development phase as you are testing the module with
+different query tickets.  This method is called internally by
+C<restore_ticket_vectors_and_inverted_index()>.
 
 =item  B<restore_stemmed_tickets_from_disk()>
 
@@ -2041,23 +2029,22 @@ C<restore_ticket_vectors_and_inverted_index()>.
 
     $clusterer->restore_ticket_vectors_and_inverted_index()
 
-If you are going to be doing ticket preprocessing and doc modeling in one
-script and ticket retrieval in another, then this is the first method you
-would need to call in the latter for the restoration of the VSM model for
-the tickets and the inverted index.
+If you are going to be doing ticket preprocessing and doc modeling in one script and
+ticket retrieval in another, then this is the first method you would need to call in
+the latter for the restoration of the VSM model for the tickets and the inverted
+index.
 
 =item B<retrieve_similar_tickets_with_vsm()>
 
     my $retrieved_hash_ref = $clusterer->retrieve_similar_tickets_with_vsm( $ticket_num )
 
-It is this method that retrieves tickets that are most similar to a query
-ticket.  The method first utilizes the inverted index to construct a
-candidate list of the tickets that share words with the query ticket.  Only
-those words play a role here whose IDF values exceed C<min_idf_threshold>.
-Subsequently, the query ticket vector is matched with each of the ticket
-vectors in the candidate list.  The method returns a reference to a hash
-whose keys are the IDs for the tickets that match the query ticket and
-whose values the cosine similarity distance.
+It is this method that retrieves tickets that are most similar to a query ticket.
+The method first utilizes the inverted index to construct a candidate list of the
+tickets that share words with the query ticket.  Only those words play a role here
+whose IDF values exceed C<min_idf_threshold>.  Subsequently, the query ticket vector
+is matched with each of the ticket vectors in the candidate list.  The method returns
+a reference to a hash whose keys are the IDs for the tickets that match the query
+ticket and whose values the cosine similarity distance.
 
 =item B<show_original_ticket_for_given_id()>
 
@@ -2076,11 +2063,10 @@ establishing similarity between a query ticket and the other tickets.
 
     $clusterer->show_processed_ticket_clustering_data_for_given_id( $ticket_num );
 
-This is the method to call if you wish to examine the textual content of a
-ticket after it goes through the preprocessing steps.  In particular, you
-will see the corrections made, the synonyms added, etc.  You would need to
-set the argument C<$ticket_num> to the unique integer ID of the ticket you
-are interested in.
+This is the method to call if you wish to examine the textual content of a ticket
+after it goes through the preprocessing steps.  In particular, you will see the
+corrections made, the synonyms added, etc.  You would need to set the argument
+C<$ticket_num> to the unique integer ID of the ticket you are interested in.
 
 =item  B<store_processed_tickets_on_disk()>
 
@@ -2093,52 +2079,50 @@ tickets.
 
     $clusterer->store_raw_tickets_on_disk();
 
-This method is called by the C<get_tickets_from_excel()> method to store on
-the disk the tickets extracted from the Excel spreadsheet.  Obviously, you
-can also call it in your own script for doing the same.
+This method is called by the C<get_tickets_from_excel()> method to store on the disk
+the tickets extracted from the Excel spreadsheet.  Obviously, you can also call it in
+your own script for doing the same.
 
 =item  B<store_stemmed_tickets_and_inverted_index_on_disk()>
 
     $clusterer->store_stemmed_tickets_and_inverted_index_on_disk()
 
-This method stores in a database file the stemmed tickets and the inverted
-index that are produced at the end of the second stage of processing.
+This method stores in a database file the stemmed tickets and the inverted index that
+are produced at the end of the second stage of processing.
 
 =item B<show_stemmed_ticket_clustering_data_for_given_id()>
 
     $clusterer->show_stemmed_ticket_clustering_data_for_given_id( $ticket_num );
 
-If you want to see what sort of a job the stemmer is doing for a ticket,
-this is the method to call.  You would need to set the argument
-C<$ticket_num> to the unique integer ID of the ticket you are interested
-in.
+If you want to see what sort of a job the stemmer is doing for a ticket, this is the
+method to call.  You would need to set the argument C<$ticket_num> to the unique
+integer ID of the ticket you are interested in.
 
 =item  B<store_ticket_vectors()>
 
     $clusterer->store_ticket_vectors()
 
-As the name implies, this call stores the vectors, both regular and
-normalized, in a database file on the disk.
+As the name implies, this call stores the vectors, both regular and normalized, in a
+database file on the disk.
 
 =back
 
 =head1 HOW THE MATCHING TICKETS ARE RETRIEVED
 
-It is the method C<retrieve_similar_tickets_with_vsm()> that returns the
-best ticket matches for a given query ticket.  What this method returns is
-a hash reference; the keys in this hash are the integer IDs of the matching
-tickets and the values the cosine similarity distance between the query
-ticket and the matching tickets.  The number of matching tickets returned
-by C<retrieve_similar_tickets_with_vsm()> is set by the constructor
-parameter C<how_many_retrievals>.  Note that
-C<retrieve_similar_tickets_with_vsm()> takes a single argument, which is
-the integer ID of the query ticket.
+It is the method C<retrieve_similar_tickets_with_vsm()> that returns the best ticket
+matches for a given query ticket.  What this method returns is a hash reference; the
+keys in this hash are the integer IDs of the matching tickets and the values the
+cosine similarity distance between the query ticket and the matching tickets.  The
+number of matching tickets returned by C<retrieve_similar_tickets_with_vsm()> is set
+by the constructor parameter C<how_many_retrievals>.  Note that
+C<retrieve_similar_tickets_with_vsm()> takes a single argument, which is the integer
+ID of the query ticket.
 
 
 =head1 THE C<examples> DIRECTORY
 
-The C<examples> directory contains the following two scripts that would be
-your quickest way to become familiar with this module:
+The C<examples> directory contains the following two scripts that would be your
+quickest way to become familiar with this module:
 
 =over
 
@@ -2148,79 +2132,74 @@ Run the script
 
     ticket_preprocessor_and_doc_modeler.pl
 
-This will carry out preprocessing and doc modeling of the tickets that are
-stored in the Excel file C<ExampleExcelFile.xls> that you will find in the
-same directory.
+This will carry out preprocessing and doc modeling of the tickets that are stored in
+the Excel file C<ExampleExcelFile.xls> that you will find in the same directory.
 
-=item B<For similarity retrieval of tickets:>
+=item B<For retrieving similar tickets:>
 
 Next, run the script
 
     retrieve_similar_tickets.pl
 
-to retrieve five tickets that are closest to the query ticket whose integer
-ID is supplied to the C<retrieve_similar_tickets_with_vsm()> method in the
-script. 
+to retrieve five tickets that are closest to the query ticket whose integer ID is
+supplied to the C<retrieve_similar_tickets_with_vsm()> method in the script.
 
 =back
 
-Note that the tickets in the C<ExampleExcelFil.xls> file are contrived.
-The sole purpose of executing the above two scripts is just to get you
-started with the use of this module. 
+Note that the tickets in the C<ExampleExcelFil.xls> file are contrived.  The sole
+purpose of executing the above two scripts is just to get you started with the use of
+this module.
 
 
 =head1 HOW YOU CAN TURN THIS MODULE INTO A PRODUCTION-QUALITY TOOL
 
-By a production-quality tool, I mean a software package that you can
-I<actually> use in a production environment for automated or semi-automated
-ticket routing in your organization.  I am assuming you already have the
-tools in place that insert in real-time the new tickets in an Excel
-spreadsheet.
+By a production-quality tool, I mean a software package that you can I<actually> use
+in a production environment for automated or semi-automated ticket routing in your
+organization.  I am assuming you already have the tools in place that insert in
+real-time the new tickets in an Excel spreadsheet.
 
-Turning this module into a production tool will require that you find the
-best values to use for the following three parameters that are needed by
-the constructor: (1) C<min_idf_threshold> for the minimum C<idf> value for
-the words in a query ticket in order for them to be considered for matching
-with the other tickets; (2) C<min_word_length> for discarding words that
-are too short; and (3) C<max_num_syn_words> for how many synonyms to retain
-for a word if the number of synonyms returned by WordNet is too large.  In
-addition, you must also come up with a misspelled-words file that is
-appropriate to your application domain and a stop-words file.
+Turning this module into a production tool will require that you find the best values
+to use for the following three parameters that are needed by the constructor: (1)
+C<min_idf_threshold> for the minimum C<idf> value for the words in a query ticket in
+order for them to be considered for matching with the other tickets; (2)
+C<min_word_length> for discarding words that are too short; and (3)
+C<max_num_syn_words> for how many synonyms to retain for a word if the number of
+synonyms returned by WordNet is too large.  In addition, you must also come up with a
+misspelled-words file that is appropriate to your application domain and a stop-words
+file.
 
-In order to find the best values to use for the parameters that are
-mentioned above, I suggest creating a graphical front-end for this module
-that would allow for altering the values of the three parameters listed
-above in response to the prevailing mis-routing rates for the tickets.  The
-front-end will display to an operator the latest ticket that needs to be
-routed and a small set of the best-matching previously routed tickets as
-returned by this module.  Used either in a fully-automated mode or a
-semi-automated mode, this front-end would contain a feedback recorder that
-would keep track of mis-routed tickets --- the mis-routed tickets would
-presumably bounce back to the central operator monitoring the
-front-end. The front-end display could be equipped with slider controls for
-altering the values used for the three parameters. Obviously, as a
-parameter is changed, some of the database files stored on the disk would
-need to be recomputed.  The same would be the case if you make changes to
-the misspelled-words file or to the stop-words file.
+In order to find the best values to use for the parameters that are mentioned above,
+I suggest creating a graphical front-end for this module that would allow for
+altering the values of the three parameters listed above in response to the
+prevailing mis-routing rates for the tickets.  The front-end will display to an
+operator the latest ticket that needs to be routed and a small set of the
+best-matching previously routed tickets as returned by this module.  Used either in a
+fully-automated mode or a semi-automated mode, this front-end would contain a
+feedback recorder that would keep track of mis-routed tickets --- the mis-routed
+tickets would presumably bounce back to the central operator monitoring the
+front-end. The front-end display could be equipped with slider controls for altering
+the values used for the three parameters. Obviously, as a parameter is changed, some
+of the database files stored on the disk would need to be recomputed.  The same would
+be the case if you make changes to the misspelled-words file or to the stop-words
+file.
 
 =head1 REQUIRED
 
-This module requires the following four modules:
+This module requires the following five modules:
 
     Spreadsheet::ParseExcel
     Spreadsheet::XLSX
     WordNet::QueryData
     Storable
-    use SDBM_File
+    SDBM_File
 
-the first for extracting information from the old-style Excel sheets that
-are commonly used for storing tickets, the second for extracting the same
-information from the new-style Excel sheets, the third for interfacing with
-WordNet for extracting the synonyms and antonyms, the forth for creating
-the various disk-based database files needed by the module, and the last
-for disk-based hashes used to lend persistence to the extraction of the
-alphabet used by the tickets and the inverse document frequencies of the
-words.
+the first for extracting information from the old-style Excel sheets that are
+commonly used for storing tickets, the second for extracting the same information
+from the new-style Excel sheets, the third for interfacing with WordNet for
+extracting the synonyms and antonyms, the fourth for creating the various disk-based
+database files needed by the module, and the last for disk-based hashes used to lend
+persistence to the extraction of the alphabet used by the tickets and the inverse
+document frequencies of the words.
 
 =head1 EXPORT
 
@@ -2228,32 +2207,52 @@ None by design.
 
 =head1 CAVEATS
 
-An automated or semi-automated ticket router based on the concepts
-incorporated in this module may not be appropriate for all applications,
-especially in domains where highly jargonified expressions are used to
-describe faults and problems associated with an application.
+An automated or semi-automated ticket router based on the concepts incorporated in
+this module may not be appropriate for all applications, especially in domains where
+highly jargonified expressions are used to describe faults and problems associated
+with an application.
 
 =head1 BUGS
 
-Please notify the author if you encounter any bugs.  When
-sending email, please place the string 'TicketClusterer' in the
-subject line to get past my spam filter.
+Please notify the author if you encounter any bugs.  When sending email, please place
+the string 'TicketClusterer' in the subject line to get past my spam filter.
 
 =head1 INSTALLATION
 
-The usual
+Download the archive from CPAN in any directory of your choice.  Unpack the archive
+with a command that on a Linux machine would look like:
+
+    tar zxvf Algorithm-TicketClusterer-1.01.tar.gz
+
+This will create an installation directory for you whose name will be
+C<Algorithm-TicketClusterer-1.01>.  Enter this directory and execute the following
+commands for a standard install of the module if you have root privileges:
 
     perl Makefile.PL
     make
     make test
-    make install
+    sudo make install
 
-if you have root access.  If not, 
+If you do not have root privileges, you can carry out a non-standard install the
+module in any directory of your choice by:
 
     perl Makefile.PL prefix=/some/other/directory/
     make
     make test
     make install
+
+With a non-standard install, you may also have to set your PERL5LIB environment
+variable so that this module can find the required other modules. How you do that
+would depend on what platform you are working on.  In order to install this module in
+a Linux machine on which I use tcsh for the shell, I set the PERL5LIB environment
+variable by
+
+    setenv PERL5LIB /some/other/directory/lib64/perl5/:/some/other/directory/share/perl5/
+
+If I used bash, I'd need to declare:
+
+    export PERL5LIB=/some/other/directory/lib64/perl5/:/some/other/directory/share/perl5/
+
 
 =head1 THANKS
 
@@ -2261,19 +2260,21 @@ I owe Shivani Rao many thanks for sharing with me the deep insights she has
 developed over the years in practically every facet of information
 retrieval.
 
+
 =head1 AUTHOR
 
 Avinash Kak, kak@purdue.edu
 
-If you send email, please place the string "TicketClusterer" in your
-subject line to get past my spam filter.
+If you send email, please place the string "TicketClusterer" in your subject line to
+get past my spam filter.
+
 
 =head1 COPYRIGHT
 
-This library is free software; you can redistribute it and/or
-modify it under the same terms as Perl itself.
+This library is free software; you can redistribute it and/or modify it under the
+same terms as Perl itself.
 
- Copyright 2012 Avinash Kak
+ Copyright 2014 Avinash Kak
 
 =cut
 

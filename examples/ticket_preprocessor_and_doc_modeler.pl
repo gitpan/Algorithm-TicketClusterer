@@ -12,7 +12,7 @@
 ###  ticket.
 
 
-use lib '../blib/lib', '../blib/arch';
+#use lib '../blib/lib', '../blib/arch';
 
 use strict;
 use Algorithm::TicketClusterer;
@@ -55,8 +55,6 @@ my $clusterer = Algorithm::TicketClusterer->new(
                      max_num_syn_words         => 3,
                      min_word_length           => 4,
                      want_stemming             => 1,
-                     debug1                    => 1,  # for processing, filtering Excel
-                     debug2                    => 1,  # for doc modeling
                 );
 
 ## Extract information from Excel spreadsheets:

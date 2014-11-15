@@ -29,8 +29,13 @@ my $tclusterer = Algorithm::TicketClusterer->new(
 
 my @returned = $tclusterer->_test_excel_for_tickets();
 my @should_be = qw/0 4 0 6/;
-
-ok( @returned ~~ @should_be, 'Able to process Excel' );
+#ok( @returned ~~ @should_be, 'Able to process Excel' );
+my @comparisons = map {$returned[$_] == $should_be[$_] ? 1 : 0} (0..@returned-1);
+my $final_compare = 1;
+foreach my $i (0..@returned-1) {
+    $final_compare *= $comparisons[$i]
+}
+ok( $final_compare, 'Able to process Excel' );
 
 ## Test 2 (Check Clustering Data):
 

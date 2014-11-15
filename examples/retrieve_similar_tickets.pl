@@ -26,7 +26,7 @@
 ###  main documentation.
 
 
-use lib '../blib/lib', '../blib/arch';
+#use lib '../blib/lib', '../blib/arch';
 
 use strict;
 use Algorithm::TicketClusterer;
@@ -56,7 +56,6 @@ my $clusterer = Algorithm::TicketClusterer->new(
                      tkt_doc_vecs_normed_db    => $tkt_doc_vecs_normed_db,
                      min_idf_threshold         => 1.3,
                      how_many_retrievals       => 5,
-                     debug3                    => 1,  # for similarity retrieval
                 );
 
 #my $ticket_num = 1377224;
